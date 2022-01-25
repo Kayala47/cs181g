@@ -21,4 +21,13 @@ Swapchain is mechanism for swapping out series of images
 8. It creates a buffer starting on line 221, and that's just three vertices put together. From what I 
 understand, it then is passed into a command buffer, which can be passed to the GPU to perform the drawing.
 
-9. 
+9. The shader macro takes in a couple of string inputs: the type of shader, and then GLSL (a shading language) 
+source code to compute the shader.
+
+10. A renderpass describes one or more steps to render something on the screen. In our code, I think it is used to 
+create the background color for the triangle to sit in front of.
+
+11. A graphics pipeline holds together information about the vertices, the renderpass, and information about the shader
+to define how a draw operation takes place.
+
+12. I think this function is supposed to re-size the images sent to be drawn whenever the window size changes. 
