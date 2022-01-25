@@ -1,0 +1,24 @@
+1. Instance is the 'package' you're using, PhysicalDevice would be the hardware it runs on,
+ and they work together to create a Device object which you can run commands on.
+
+2. It puts all available devices into a list, then filters out those that don't support 
+functionality we need, then sorts based on a custom ranking from DiscreteGPU to CPU.
+
+3. With a filter, you might not get any values. It returns an Optional value, and we call unwrap 
+to get the actual value.
+
+4. A Device represents a channel of communication with hardware, but is not hardware. You can use 
+Device to call functions and write to the screen.
+
+5. Queues are sets of instructions that go to the GPU. Instructions of the same type go in the 
+same queue_family because we want to only pass in one type at a time
+
+6. Swapchains solve the issue of CPU providing image at same time as GPU is displaying (tearing). 
+Swapchain is mechanism for swapping out series of images
+
+7. Vertex just seems to be two numbers, so probably x,y coordinates
+
+8. It creates a buffer starting on line 221, and that's just three vertices put together. From what I 
+understand, it then is passed into a command buffer, which can be passed to the GPU to perform the drawing.
+
+9. 
