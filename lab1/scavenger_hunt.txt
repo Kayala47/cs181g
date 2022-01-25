@@ -31,3 +31,14 @@ create the background color for the triangle to sit in front of.
 to define how a draw operation takes place.
 
 12. I think this function is supposed to re-size the images sent to be drawn whenever the window size changes. 
+
+13. So, I'm not sure. I know it stores the previous command issued to the GPU. I can't see the inside of cleanup_finished
+but I'm assuming that returns the resources that need to be re-assigned. That makes sense bc of the match
+statement later that holds different things based on the success of the draw.
+
+14. I think these happen in lines 482-484. Those seem like a direct translation of the pipeline.
+
+15. I think that happens in line 484 with the builder, who actually calls draw on the list of vertices. 
+
+16. Partly, it joins the previous function with the new future, which I think tells it what resources are 
+available and what part of the new future it can therefore draw. 
