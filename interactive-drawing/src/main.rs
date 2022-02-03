@@ -9,6 +9,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+use std::cmp::min;
 use std::sync::Arc;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents};
@@ -77,6 +78,23 @@ fn rectangle(fb: &mut [Color], r: Rect, c: Color) {
         line(fb, r.x, r.x + r.w, i, c);
     }
 }
+
+#[allow(dead_code)]
+fn outlined_rect(fb: &mut [Color], r: Rect, c: Color) {
+    assert!(r.w + r.x <= WIDTH);
+    assert!(r.h + r.y <= HEIGHT);
+
+    for i in (r.y)..(r.y + r.h) {
+        line(fb, r.x, r.x + r.w, i, c);
+    }
+
+    let new_c = (255, 255, 255, 0);
+    //cover back up the parts we weren't supposed to color
+    for i in (r.y + 1)..(r.y + r.h - 1) {
+        line(fb, r.x, r.x + r.w - 1, i, new_c);
+    }
+}
+
 fn main() {
     let mut now_keys = [false; 255];
     let mut prev_keys = now_keys.clone();
@@ -303,6 +321,8 @@ fn main() {
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
     let mut y = 0;
+    let mut y2: usize = 2;
+    let mut x2: usize = 2;
     event_loop.run(move |event, _, control_flow| {
         match event {
             // NewEvents: Let's start processing events.
@@ -352,21 +372,50 @@ fn main() {
             }
             // MainEventsCleared: Buttons and stuff have all been handled.  Update stuff!
             Event::MainEventsCleared => {
+                {
+                    // We need to synchronize here to send new data to the GPU.
+                    // We can't send the new framebuffer until the previous frame is done being drawn.
+                    // Dropping the future will block until it's done.
+                    if let Some(mut fut) = previous_frame_end.take() {
+                        fut.cleanup_finished();
+                    }
+                }
+
                 // We can actually handle events now that we know what they all are.
                 if now_keys[VirtualKeyCode::Escape as usize] {
                     *control_flow = ControlFlow::Exit;
                 }
                 if now_keys[VirtualKeyCode::Up as usize] {
-                    y += 1;
+                    if y > 0 && !now_keys[VirtualKeyCode::LControl as usize] {
+                        y -= 1;
+                    }
+                    if y2 > 0 && now_keys[VirtualKeyCode::LShift as usize] {
+                        y2 -= 1;
+                    }
                 }
                 if now_keys[VirtualKeyCode::Down as usize] {
-                    y -= 1;
+                    if !now_keys[VirtualKeyCode::LControl as usize] {
+                        y += 1;
+                    }
+                    if now_keys[VirtualKeyCode::LShift as usize] {
+                        y2 += 1;
+                    }
                 }
                 if now_keys[VirtualKeyCode::Left as usize] && x > 0 {
-                    x -= 1;
+                    if x > 0 && !now_keys[VirtualKeyCode::LControl as usize] {
+                        x -= 1;
+                    }
+                    if x2 > 0 && now_keys[VirtualKeyCode::LShift as usize] {
+                        x2 -= 1;
+                    }
                 }
                 if now_keys[VirtualKeyCode::Right as usize] && x < WIDTH - 1 {
-                    x += 1;
+                    if !now_keys[VirtualKeyCode::LControl as usize] {
+                        x += 1;
+                    }
+                    if now_keys[VirtualKeyCode::LShift as usize] {
+                        x2 += 1;
+                    }
                 }
                 // Exercise for the reader: Tie y to mouse movement
 
@@ -377,6 +426,99 @@ fn main() {
                 let rect = Rect::new(x, y, WIDTH / 2, HEIGHT / 2);
 
                 rectangle(&mut fb2d, rect, c);
+
+                let rect2 = Rect::new(x2 + 10, y2, WIDTH / 2, HEIGHT / 2);
+                outlined_rect(&mut fb2d, rect2, c);
+
+                // Now we can copy into our buffer.
+                {
+                    let writable_fb = &mut *fb2d_buffer.write().unwrap();
+                    writable_fb.copy_from_slice(&fb2d); //copy frame buffer into GPU
+                }
+
+                if recreate_swapchain {
+                    let dimensions: [u32; 2] = surface.window().inner_size().into();
+                    let (new_swapchain, new_images) =
+                        match swapchain.recreate().dimensions(dimensions).build() {
+                            Ok(r) => r,
+                            Err(SwapchainCreationError::UnsupportedDimensions) => return,
+                            Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+                        };
+
+                    swapchain = new_swapchain;
+                    framebuffers = window_size_dependent_setup(
+                        &new_images,
+                        render_pass.clone(),
+                        &mut viewport,
+                    );
+                    recreate_swapchain = false;
+                }
+                let (image_num, suboptimal, acquire_future) =
+                    match swapchain::acquire_next_image(swapchain.clone(), None) {
+                        Ok(r) => r,
+                        Err(AcquireError::OutOfDate) => {
+                            recreate_swapchain = true;
+                            return;
+                        }
+                        Err(e) => panic!("Failed to acquire next image: {:?}", e),
+                    };
+                if suboptimal {
+                    recreate_swapchain = true;
+                }
+
+                let mut builder = AutoCommandBufferBuilder::primary(
+                    device.clone(),
+                    queue.family(),
+                    CommandBufferUsage::OneTimeSubmit,
+                )
+                .unwrap();
+
+                builder
+                    // Now copy that framebuffer buffer into the framebuffer image
+                    .copy_buffer_to_image(fb2d_buffer.clone(), fb2d_image.clone())
+                    .unwrap()
+                    // And resume our regularly scheduled programming
+                    .begin_render_pass(
+                        framebuffers[image_num].clone(),
+                        SubpassContents::Inline,
+                        std::iter::once(vulkano::format::ClearValue::None),
+                    )
+                    .unwrap()
+                    .set_viewport(0, [viewport.clone()])
+                    .bind_pipeline_graphics(pipeline.clone())
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        pipeline.layout().clone(),
+                        0,
+                        set.clone(),
+                    )
+                    .bind_vertex_buffers(0, vertex_buffer.clone())
+                    .draw(vertex_buffer.len() as u32, 1, 0, 0)
+                    .unwrap()
+                    .end_render_pass()
+                    .unwrap();
+
+                let command_buffer = builder.build().unwrap();
+
+                let future = acquire_future
+                    .then_execute(queue.clone(), command_buffer)
+                    .unwrap()
+                    .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
+                    .then_signal_fence_and_flush();
+
+                match future {
+                    Ok(future) => {
+                        previous_frame_end = Some(future.boxed());
+                    }
+                    Err(FlushError::OutOfDate) => {
+                        recreate_swapchain = true;
+                        previous_frame_end = Some(sync::now(device.clone()).boxed());
+                    }
+                    Err(e) => {
+                        println!("Failed to flush future: {:?}", e);
+                        previous_frame_end = Some(sync::now(device.clone()).boxed());
+                    }
+                }
             }
             _ => (), //important: matches all other events
         }
