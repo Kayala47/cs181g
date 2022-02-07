@@ -98,8 +98,7 @@ fn outlined_rect(fb: &mut [Color], r: Rect, c: Color) {
 fn main() {
     let mut now_keys = [false; 255];
     let mut prev_keys = now_keys.clone();
-    let mut x: usize = 0;
-    let mut y: usize = 0;
+
     let c = (255, 0, 0, 0);
     let required_extensions = vulkano_win::required_extensions();
     let instance = Instance::new(None, Version::V1_1, &required_extensions, None).unwrap();
@@ -320,7 +319,21 @@ fn main() {
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
-    let mut y = 0;
+    let mut x: f32 = 0.0;
+    let mut y: f32 = 0.0;
+
+    let mut ax: f32 = 0.0;
+    let mut ay: f32 = 0.0;
+    let mut vx: f32 = 0.0;
+    let mut vy: f32 = 0.0;
+
+    let mut hor_dir: f32 = 1.0;
+    let mut ver_dir: f32 = 1.0;
+
+    let mut accel: f32 = 0.5;
+
+    let mut decay: f32 = 0.3;
+
     let mut y2: usize = 2;
     let mut x2: usize = 2;
     event_loop.run(move |event, _, control_flow| {
@@ -385,50 +398,102 @@ fn main() {
                 if now_keys[VirtualKeyCode::Escape as usize] {
                     *control_flow = ControlFlow::Exit;
                 }
-                if now_keys[VirtualKeyCode::Up as usize] {
-                    if y > 0 && !now_keys[VirtualKeyCode::LControl as usize] {
-                        y -= 1;
-                    }
-                    if y2 > 0 && now_keys[VirtualKeyCode::LShift as usize] {
-                        y2 -= 1;
-                    }
-                }
+
                 if now_keys[VirtualKeyCode::Down as usize] {
                     if !now_keys[VirtualKeyCode::LControl as usize] {
-                        y += 1;
+                        ay += accel;
                     }
-                    if now_keys[VirtualKeyCode::LShift as usize] {
-                        y2 += 1;
-                    }
+                    // if now_keys[VirtualKeyCode::LShift as usize] {
+                    //     y2 += accel;
+                    // }
                 }
-                if now_keys[VirtualKeyCode::Left as usize] && x > 0 {
-                    if x > 0 && !now_keys[VirtualKeyCode::LControl as usize] {
-                        x -= 1;
-                    }
-                    if x2 > 0 && now_keys[VirtualKeyCode::LShift as usize] {
-                        x2 -= 1;
-                    }
-                }
-                if now_keys[VirtualKeyCode::Right as usize] && x < WIDTH - 1 {
+                if now_keys[VirtualKeyCode::Right as usize] && x < (WIDTH - 1) as f32 {
                     if !now_keys[VirtualKeyCode::LControl as usize] {
-                        x += 1;
+                        ax += accel;
                     }
-                    if now_keys[VirtualKeyCode::LShift as usize] {
-                        x2 += 1;
-                    }
+                    // if now_keys[VirtualKeyCode::LShift as usize] {
+                    //     x2 += accel;
+                    // }
                 }
+
+                if !now_keys[VirtualKeyCode::Right as usize]
+                    && !now_keys[VirtualKeyCode::Down as usize]
+                {
+                    ax = 0.0;
+                    ay = 0.0;
+                }
+
+                if now_keys[VirtualKeyCode::LShift as usize] {
+                    //move to muddy ground
+                    decay = 0.5;
+                    accel = 0.2;
+                } else {
+                    decay = 0.3;
+                    accel = 0.5;
+                }
+
                 // Exercise for the reader: Tie y to mouse movement
 
                 // It's debatable whether the following code should live here or in the drawing section.
                 // First clear the framebuffer...
                 clear(&mut fb2d, (128, 64, 64, 255));
                 // Then draw our line:
-                let rect = Rect::new(x, y, WIDTH / 2, HEIGHT / 2);
+                vx += ax;
+                vy += ay;
+                x += vx;
+                y += vy;
+                if now_keys[VirtualKeyCode::Left as usize] && x > 0.0 {
+                    // if x > 0.0 && !now_keys[VirtualKeyCode::LControl as usize] {
+                    //     ax -= accel;
+                    // }
+                    x = 0.0;
+                    vx = 0.0;
+                    ax = 0.0;
+                    // if x2 > 0 && now_keys[VirtualKeyCode::LShift as usize] {
+                    //     x2 -= accel;
+                    // }
+                }
+
+                if x > (WIDTH * 2 / 3) as f32 {
+                    x = (WIDTH * 2 / 3) as f32
+                }
+                y += vy;
+                if y > (HEIGHT * 2 / 3) as f32 {
+                    y = (HEIGHT * 2 / 3) as f32
+                }
+
+                if now_keys[VirtualKeyCode::Up as usize] {
+                    // if y > 0.0 && !now_keys[VirtualKeyCode::LControl as usize] {
+                    //     ay -= accel;
+                    // }
+                    y = 0.0;
+                    vy = 0.0;
+                    ay = 0.0;
+                    // if y2 > 0 && now_keys[VirtualKeyCode::LShift as usize] {
+                    //     y2 -= accel;
+                    // }
+                }
+
+                let rect = Rect::new(x as usize, y as usize, WIDTH / 3, HEIGHT / 3);
 
                 rectangle(&mut fb2d, rect, c);
 
-                let rect2 = Rect::new(x2 + 10, y2, WIDTH / 2, HEIGHT / 2);
-                outlined_rect(&mut fb2d, rect2, c);
+                if vx - decay > 0.0 {
+                    vx -= decay
+                } else {
+                    vx = 0.0;
+                }
+                if vy - decay > 0.0 {
+                    vy -= decay
+                } else {
+                    vy = 0.0;
+                }
+
+                // vx = min(vx - 1.0, 0.0);
+                // vy = min(vy - 1.0, 0.0);
+
+                // let rect2 = Rect::new(x2 + 10, y2, WIDTH / 2, HEIGHT / 2);
+                // outlined_rect(&mut fb2d, rect2, c);
 
                 // Now we can copy into our buffer.
                 {
